@@ -169,7 +169,7 @@ def create_main_template_c(model, example=None, example_comment='', options=None
       example = ''
       example = '={0}'
       fill_input = f'''//TODO: fill input data structure function
-  fill_input(&input);
+  //fill_input(&input);
   
   '''
       

@@ -1,5 +1,5 @@
 from xml.etree.ElementTree import Comment
-from tensorflow.keras.models import load_model
+
 from sklearn.datasets import load_digits
 
 from embedia.project_options import *
@@ -34,7 +34,8 @@ options.debug_mode = DebugMode.DISCARD
 # options.debug_mode = DebugMode.DATA
 
 '''
-In case you want to use a specific example data, you can use the following code:
+In case you want to use a specific example data, you can use the following code for example for MNIST dataset:
+from tensorflow.keras.models import load_model
 digits = load_digits()
 example_number = 33
 sample = digits.images[example_number] #this should be set to a sample of the data
