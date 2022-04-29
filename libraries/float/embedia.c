@@ -417,8 +417,6 @@ uint16_t argmax(flatten_data_t data){
 	return pos;
 }
 
-
-
 /*
  * batch_normalization()
  
@@ -432,9 +430,9 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) 
 	double aux;
 
 	for (i = 0; i < input.channels; i++) {
-		aux = layer.gamma[i] / sqrt(layer.moving_variance[i] + 0.001);
+		aux = layer.gamma[i] / sqrt(layer.moving_variance[i] + 0.001);	// epsilon = 0.001
 		for (j = 0; j < length; j++) {
-			output->data[i*length+j] = aux * input.data[i*length+j] + layer.beta[i] - aux * layer.moving_mean[i];
+			output->data[i*length+j] = aux * (input.data[i*length+j] - layer.moving_mean[i]) + layer.beta[i];
 		}
 	}
 }
@@ -447,8 +445,8 @@ void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, 
 	uint32_t i;
 	double aux;
 	for (i = 0; i < output->length; i++) {
-		aux = sqrt(layer.moving_variance[i] + 0.001);	// epsilon = 0.001
-		output->data[i] = (layer.gamma[i] / aux) * input.data[i] + layer.beta[i] - (layer.gamma[i] * layer.moving_mean[i]) / aux;
+		aux = layer.gamma[i] / sqrt(layer.moving_variance[i] + 0.001);	// epsilon = 0.001
+		output->data[i] = aux * (input.data[i] - layer.moving_mean[i]) + layer.beta[i];
 	}
 }
 
