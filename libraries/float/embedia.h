@@ -263,7 +263,7 @@ uint16_t argmax(flatten_data_t data);
  *      data_t *data            =>  datos de tipo data_t a modificar
  */
 
-void batch_normalization(batchnorm_layer_t layer, data_t *data);
+void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output);
 
 /*
  * batch_normalization_flatten()
@@ -273,7 +273,7 @@ void batch_normalization(batchnorm_layer_t layer, data_t *data);
  *      flatten_data_t *data    =>  datos de tipo flatten_data_t a modificar
  */
 
-void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t *data);
+void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output);
 
 
 #endif

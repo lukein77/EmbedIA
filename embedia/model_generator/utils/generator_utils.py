@@ -542,25 +542,30 @@ def model_predict_batchnorm(layer, index, layerNumber, options, flatten):
   if (not flatten):
     # Estamos trabajando con data_t
     ret += f'''
-    batch_normalization(batchnorm_layer{index}, &input);  
+  batch_normalization(batchnorm_layer{index}, input, &output);  
     '''
     if options.debug_mode != DebugMode.DISCARD:
       ret+=f'''
         #if EMBEDIA_DEBUG > 0
-        print_data_t("Output matrix layer {layerNumber} (BatchNormalization): ", input);
+        print_data_t("Output matrix layer {layerNumber} (BatchNormalization): ", output);
         #endif // EMBEDIA_DEBUG
         '''
+    ret+='''input = output;
+  '''
   else:
     # Estamos trabajando con flatten_data_t
     ret += f'''
-    batch_normalization_flatten(batchnorm_layer{index}, &f_input);
+  batch_normalization_flatten(batchnorm_layer{index}, f_input, &f_output);
     '''
     if options.debug_mode != DebugMode.DISCARD:
       ret+=f'''
       #if EMBEDIA_DEBUG > 0
-      print_flatten_data_t("Output Vector Layer {layerNumber} (BatchNormalization): ", f_input);
+      print_flatten_data_t("Output Vector Layer {layerNumber} (BatchNormalization): ", f_output);
       #endif // EMBEDIA_DEBUG
       '''
+    ret+='''f_input = f_output;
+  '''
+  
   return ret
 
 #CREATE MODEL PREDICT FUNCTION

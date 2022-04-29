@@ -426,17 +426,15 @@ uint16_t argmax(flatten_data_t data){
  * y para los campos de la batchnorm hacer [i % (length/channels)]
  */
 
-void batch_normalization(batchnorm_layer_t layer, data_t *data) {
+void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) {
 	uint32_t i, j;
-	uint16_t length = (data->height)*(data->width);
+	uint16_t length = (input.height)*(input.width);
 	double aux;
 
-	//printf("length: %d, width: %d, height: %d, channels: %d\n", length, data->height, data->width, data->channels);
-	for (i = 0; i < data->channels; i++) {
+	for (i = 0; i < input.channels; i++) {
 		aux = layer.gamma[i] / sqrt(layer.moving_variance[i] + 0.001);
-		//printf("\ngamma: %f, beta: %f, mean: %f, var: %f, aux: %f\n", layer.gamma[i], layer.beta[i], layer.moving_mean[i], layer.moving_variance[i], aux);
 		for (j = 0; j < length; j++) {
-			data->data[i*length+j] = aux * data->data[i*length+j] + layer.beta[i] - aux * layer.moving_mean[i];
+			output->data[i*length+j] = aux * input.data[i*length+j] + layer.beta[i] - aux * layer.moving_mean[i];
 		}
 	}
 }
@@ -445,12 +443,12 @@ void batch_normalization(batchnorm_layer_t layer, data_t *data) {
  * batch_normalization_flatten()
  */
 
-void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t *data) {
+void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output) {
 	uint32_t i;
 	double aux;
-	for (i = 0; i < data->length; i++) {
+	for (i = 0; i < output->length; i++) {
 		aux = sqrt(layer.moving_variance[i] + 0.001);	// epsilon = 0.001
-		data->data[i] = (layer.gamma[i] / aux) * data->data[i] + layer.beta[i] - (layer.gamma[i] * layer.moving_mean[i]) / aux;
+		output->data[i] = (layer.gamma[i] / aux) * input.data[i] + layer.beta[i] - (layer.gamma[i] * layer.moving_mean[i]) / aux;
 	}
 }
 
