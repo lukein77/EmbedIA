@@ -308,7 +308,7 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   for i in range(variance.size):
     o_variance += f'''{macro_converter(variance[i])}, '''
 
-  o_code = f'''
+  init_batchnorm_layer += f'''
   
   static const {data_type} gamma[] = {{ {o_gamma} 
   }};
@@ -326,7 +326,6 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   return layer;
 }}
   '''
-
   ret += init_batchnorm_layer
   return ret
 
@@ -539,8 +538,7 @@ def model_predict_dense(layer,index,layerNumber,options,isLastLayer=False):
 
 def model_predict_batchnorm(layer, index, layerNumber, options, flatten):
   ret = f'''
-  // Capa {layerNumber}: BatchNormalization
-  '''
+  // Capa {layerNumber}: BatchNormalization'''
   if (not flatten):
     # Estamos trabajando con data_t
     ret += f'''
@@ -557,7 +555,8 @@ def model_predict_batchnorm(layer, index, layerNumber, options, flatten):
     ret += f'''
     batch_normalization_flatten(batchnorm_layer{index}, &f_input);
     '''
-    ret+=f'''
+    if options.debug_mode != DebugMode.DISCARD:
+      ret+=f'''
       #if EMBEDIA_DEBUG > 0
       print_flatten_data_t("Output Vector Layer {layerNumber} (BatchNormalization): ", f_input);
       #endif // EMBEDIA_DEBUG
