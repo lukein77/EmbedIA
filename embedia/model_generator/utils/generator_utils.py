@@ -1,5 +1,6 @@
 import numpy as np
 from tensorflow import keras
+from math import sqrt
 
 from embedia.project_options import ModelDataType, ProjectType, ProjectFiles, DebugMode
 
@@ -272,7 +273,15 @@ def get_parameters_batchnorm(layer):
   beta = layer.get_weights()[1]
   moving_mean = layer.get_weights()[2]
   moving_variance = layer.get_weights()[3]
-  return gamma,beta,moving_mean,moving_variance
+  epsilon = layer.epsilon
+
+  '''Calculate a new parameter (we'll call it gamma_variance)
+    This way we don't need to do division and calculate square root in the microcontroller
+    epsilon = 0.001 (to avoid division by zero)'''
+  gamma_variance = [(gamma[i] / sqrt(moving_variance[i] + epsilon)) for i in range()] 
+
+  return gamma,beta,moving_mean,moving_variance,gamma_variance
+
 
 def exportar_batchnorm_a_c(layer, nro, macro_converter, data_type):
   '''
@@ -286,7 +295,7 @@ def exportar_batchnorm_a_c(layer, nro, macro_converter, data_type):
     Returns:
     String with c code representing the function 
   '''
-  gamma,beta,mean,variance=get_parameters_batchnorm(layer)
+  gamma,beta,mean,variance,gamma_variance=get_parameters_batchnorm(layer)
   ret=""
 
   init_batchnorm_layer=f'''
@@ -308,10 +317,11 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   for i in range(variance.size):
     o_variance += f'''{macro_converter(variance[i])}, '''
 
+  o_gamma_variance = ""
+  for i in range(gamma_variance.size):
+    o_gamma_variance += f'''{macro_converter(gamma_variance[i])}, '''
+
   init_batchnorm_layer += f'''
-  
-  static const {data_type} gamma[] = {{ {o_gamma} 
-  }};
 
   static const {data_type} beta[] = {{ {o_beta} 
   }};
@@ -319,10 +329,22 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   static const {data_type} moving_mean[] = {{ {o_mean} 
   }};
 
-  static const {data_type} moving_variance[] = {{ {o_variance} 
+  static const {data_type} gamma_variance[] = {{ {o_gamma_variance} 
   }};
 
-  batchnorm_layer_t layer = {{ moving_mean, moving_variance, gamma, beta }};
+  /* gamma and moving_variance parameters from keras layer:
+  static const {data_type} gamma[] = {{ {o_gamma} 
+  }};
+
+  static const {data_type} moving_variance[] = {{ {o_variance} 
+  }};
+  */
+
+  batchnorm_layer_t layer;
+  layer.moving_mean = moving_mean;
+  layer.beta = beta;
+  layer.gamma_variance = gamma_variance;
+
   return layer;
 }}
   '''
