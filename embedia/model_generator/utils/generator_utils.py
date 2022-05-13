@@ -278,7 +278,7 @@ def get_parameters_batchnorm(layer):
   '''Calculate a new parameter (we'll call it gamma_variance)
     This way we don't need to do division and calculate square root in the microcontroller
     epsilon = 0.001 (to avoid division by zero)'''
-  gamma_variance = [(gamma[i] / sqrt(moving_variance[i] + epsilon)) for i in range()] 
+  gamma_variance = np.array([(gamma[i] / sqrt(moving_variance[i] + epsilon)) for i in range(gamma.size)])
 
   return gamma,beta,moving_mean,moving_variance,gamma_variance
 
@@ -343,7 +343,7 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   batchnorm_layer_t layer;
   layer.moving_mean = moving_mean;
   layer.beta = beta;
-  layer.gamma_variance = gamma_variance;
+  layer.gamma_variance = gamma_variance; 
 
   return layer;
 }}
