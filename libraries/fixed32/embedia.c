@@ -417,3 +417,41 @@ uint16_t argmax(flatten_data_t data){
 	
 	return pos;
 }
+
+
+
+/*
+ * batch_normalization()
+ * Normaliza la salida de una capa anterior
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      data_t *data            =>  datos de tipo data_t a modificar
+ */
+
+void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) {
+	uint32_t i, j;
+	uint16_t length = (input.height)*(input.width);
+	uint32_t ilen;
+
+	for (i = 0; i < input.channels; i++) {
+		ilen = i*length;
+		for (j = 0; j < length; j++) {
+			output->data[ilen+j] = (input.data[ilen+j] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
+		}
+	}
+}
+
+/*
+ * batch_normalization_flatten()
+ * Normaliza la salida proveniente de una capa densa
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      flatten_data_t *data    =>  datos de tipo flatten_data_t a modificar
+ */
+
+void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output) {
+	uint32_t i;
+	for (i = 0; i < output->length; i++) {
+		output->data[i] = (input.data[i] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
+	}
+}

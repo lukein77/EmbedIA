@@ -419,9 +419,10 @@ uint16_t argmax(flatten_data_t data){
 
 /*
  * batch_normalization()
- 
- * otra forma sería hacer un solo for hasta channels*weight*height
- * y para los campos de la batchnorm hacer [i % (length/channels)]
+ * Normaliza la salida de una capa anterior
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      data_t *data            =>  datos de tipo data_t a modificar
  */
 
 void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) {
@@ -429,7 +430,12 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) 
 	uint16_t length = (input.height)*(input.width);
 	uint32_t ilen;
 
-	for (i = 0; i < input.channels; i++) {
+	output->height = input.height;
+	output->width  = input.width;
+	output->channels = input.channels;
+	output->data = (float*) swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
+
+	for (i = 0; i < output->channels; i++) {
 		ilen = i*length;
 		for (j = 0; j < length; j++) {
 			output->data[ilen+j] = (input.data[ilen+j] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
@@ -439,10 +445,18 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) 
 
 /*
  * batch_normalization_flatten()
+ * Normaliza la salida proveniente de una capa densa
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      flatten_data_t *data    =>  datos de tipo flatten_data_t a modificar
  */
 
 void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output) {
 	uint32_t i;
+
+	output->length = input.length;
+	output->data = (float*) swap_alloc(sizeof(float)*output->length);
+
 	for (i = 0; i < output->length; i++) {
 		output->data[i] = (input.data[i] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
 	}
