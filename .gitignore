@@ -5,3 +5,5 @@ outputs/
 prueba_export.py
 prueba.py
 models/mnist_model.h5
+random_input.py
+random_input.txt

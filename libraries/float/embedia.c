@@ -419,34 +419,48 @@ uint16_t argmax(flatten_data_t data){
 
 /*
  * batch_normalization()
- 
- * otra forma sería hacer un solo for hasta channels*weight*height
- * y para los campos de la batchnorm hacer [i % (length/channels)]
+ * Normaliza la salida de una capa anterior
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      data_t *input           =>  datos de entrada de tipo data_t
+ * 		data_t *output			=>	puntero a la estructura data_t donde se guardará el resultado
  */
 
 void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) {
 	uint32_t i, j;
 	uint16_t length = (input.height)*(input.width);
-	double aux;
+	uint32_t ilen;
 
-	for (i = 0; i < input.channels; i++) {
-		aux = layer.gamma[i] / sqrt(layer.moving_variance[i] + 0.001);	// epsilon = 0.001
+	output->height = input.height;
+	output->width  = input.width;
+	output->channels = input.channels;
+	output->data = (float*) swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
+
+	for (i = 0; i < output->channels; i++) {
+		ilen = i*length;
 		for (j = 0; j < length; j++) {
-			output->data[i*length+j] = aux * (input.data[i*length+j] - layer.moving_mean[i]) + layer.beta[i];
+			output->data[ilen+j] = (input.data[ilen+j] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
 		}
 	}
 }
 
 /*
  * batch_normalization_flatten()
+ * Normaliza la salida proveniente de una capa densa
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      flatten_data_t *input   =>  datos de entrada de tipo flatten_data_t
+ * 		flatten_data_t *output	=>	puntero a la estructura flatten_data_t donde se guardará el resultado
  */
 
 void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output) {
 	uint32_t i;
-	double aux;
+
+	output->length = input.length;
+	output->data = (float*) swap_alloc(sizeof(float)*output->length);
+
 	for (i = 0; i < output->length; i++) {
-		aux = layer.gamma[i] / sqrt(layer.moving_variance[i] + 0.001);	// epsilon = 0.001
-		output->data[i] = aux * (input.data[i] - layer.moving_mean[i]) + layer.beta[i];
+		output->data[i] = (input.data[i] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
 	}
 }
 

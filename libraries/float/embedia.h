@@ -90,7 +90,6 @@ typedef struct{
     neuron_t * neurons;
 }dense_layer_t;
 
-
 /* 
  * typedef struct batchnorm_layer_t
  * Estructura que modela una capa BatchNormalization.
@@ -102,6 +101,7 @@ typedef struct {
     const float *moving_variance;
     const float *gamma;
     const float *beta;
+    const float *gamma_variance;    // = gamma / sqrt(moving_variance + epsilon)
 } batchnorm_layer_t;
 
 
@@ -260,7 +260,8 @@ uint16_t argmax(flatten_data_t data);
  * Normaliza la salida de una capa anterior
  * Parámetros:
  *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
- *      data_t *data            =>  datos de tipo data_t a modificar
+ *      data_t *input           =>  datos de entrada de tipo data_t
+ * 		data_t *output			=>	puntero a la estructura data_t donde se guardará el resultado
  */
 
 void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output);
@@ -270,7 +271,8 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output);
  * Normaliza la salida proveniente de una capa densa
  * Parámetros:
  *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
- *      flatten_data_t *data    =>  datos de tipo flatten_data_t a modificar
+ *      flatten_data_t *input   =>  datos de entrada de tipo flatten_data_t
+ * 		flatten_data_t *output	=>	puntero a la estructura flatten_data_t donde se guardará el resultado
  */
 
 void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output);
