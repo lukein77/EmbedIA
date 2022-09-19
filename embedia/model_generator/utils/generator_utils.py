@@ -1,8 +1,14 @@
 import numpy as np
 from tensorflow import keras
 from math import sqrt
+import larq as lq
 
-from embedia.project_options import ModelDataType, ProjectType, ProjectFiles, DebugMode
+from embedia.project_options import ModelDataType, ProjectType, ProjectFiles, DebugMode, BinaryBlockSize
+
+mascara_global_bits_8 = [ 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1]
+mascara_global_bits_16  = [ 32768 , 16384 , 8192 , 4096 , 2048 , 1024 , 512 , 256 , 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1]
+mascara_global_bits_32 = [ 2147483648 , 1073741824 , 536870912 , 268435456 , 134217728 , 67108864 , 33554432 , 16777216 , 8388608 , 4194304 , 2097152 , 1048576 , 524288 , 262144 , 131072 , 65536 , 32768 , 16384 , 8192 , 4096 , 2048 , 1024 , 512 , 256 , 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1]
+
 
 def convertir_pesos(weights):
   '''
@@ -12,6 +18,7 @@ def convertir_pesos(weights):
     Receives: weights from keras/tf model (model.get_weights return)
     Returns: weights our library can work with
   '''
+  
   _fila,_col,_can,_filt = weights.shape
   arr = np.zeros((_filt,_can,_fila,_col))
   for fila,elem in enumerate(weights):
@@ -21,6 +28,9 @@ def convertir_pesos(weights):
           #print("F:{0}, C:{1}, Canal:{2}, Filtro:{3} -> Valor: {4}".format(fila,columna,canal,filtro,valor))
           arr[filtros,canal,fila,columna] = valor   
   return arr
+  
+
+
 
 def get_weights_separable(layer):
   '''
@@ -64,6 +74,29 @@ def get_weights_cnn(layer):
   biases=layer.get_weights()[1]
   weights=convertir_pesos(weights)
   return weights,biases
+
+#NEWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW
+def get_weights_bnn(layer):
+  '''
+    Function to return model weights from cnn layer in a way our model can work with
+    Params:
+    layer -> convolutional layer
+    
+    Returns:
+    Tuple with values: weights y biases
+    weights -> array with dimentions: (filters,channels,rows,columns)
+    biases -> array with dimention: (filters)
+
+    example of usage: weights,bias=get_weights_cnn(layerCNN)
+  '''
+  assert 'quant_conv2d' in layer.name #asserting I didn't receive a non convolutional layer
+  with lq.context.quantized_scope(True):
+      weights=layer.get_weights()[0]
+      biases=layer.get_weights()[1]
+  
+  weights=convertir_pesos(weights)
+  return weights,biases
+
 
 
 def exportar_separable_a_c(layer,nro, macro_converter, data_type):
@@ -115,7 +148,7 @@ separable_layer_t init_separable_layer{nro}(void){{
   for i in range(point_filtros):
     o_weights=""
     for ch in range(point_canales):
-      o_weights+=f'''{macro_converter(point_weights[i,ch,0,0])}, '''
+      o_weights+=f'''{macro_converter(point_weights[i,ch,0,0])},'''
     
     o_code=f'''
   static const {data_type} point_weights{i}[]={{{o_weights}
@@ -170,7 +203,7 @@ conv_layer_t init_conv_layer{nro}(void){{
       for f in range(filas):
         o_weights+='\n    '
         for c in range(columnas):
-          o_weights+=f'''{macro_converter(pesos[i,ch,f,c])}, '''
+          o_weights+=f'''{macro_converter(pesos[i,ch,f,c])},'''
         #o_weights+='\n'
       o_weights+='\n  '
  
@@ -192,6 +225,89 @@ conv_layer_t init_conv_layer{nro}(void){{
   return ret
 
 
+# NEWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW
+def exportar_bnn_a_c(layer,nro, macro_converter, data_type,block_type,xBits,input_bin):
+  '''
+    Receives
+    layer          --> instance of a layer from a model (model.layers[i])
+    nro            --> from input to output, the number corresponding to the position of this layer
+    macro_converter--> a macro used if working with embedia fixed. Adds macro to numbers in c code
+    data_type      --> 'float' or 'fixed' depending embedia optinons
+    input_bin      --> 1 si es full binaria
+
+    Returns:
+    String with c code representing the function with model cnn weights
+  '''
+  
+  pesos,biases=get_weights_bnn(layer)
+
+
+  filtros,canales,filas,columnas=pesos.shape #Getting layer info from it's weights
+
+  assert filas==columnas #WORKING WITH SQUARE KERNELS FOR NOW
+  kernel_size=filas #Defining kernel size
+  
+  largo_total = (columnas)*(canales)*(filas)
+  
+  
+
+  ret=""
+
+  init_conv_layer=f'''
+
+quant_conv_layer_t init_conv_binary_{input_bin}_layer{nro}(void){{
+
+  static quant_filter_t filtros_b[{filtros}];
+  '''
+  for i in range(filtros):
+    cont = 0
+    suma = 0
+    o_weights=""
+    for ch in range(canales):
+      for f in range(filas):
+        for c in range(columnas):
+            num = pesos[i,ch,f,c]
+            if xBits==16:
+                if num == 1.0:  
+                    suma += mascara_global_bits_16[cont]
+            elif xBits==32:
+                if num == 1.0: 
+                    suma += mascara_global_bits_32[cont]
+            else:
+                if num == 1.0: 
+                    suma += mascara_global_bits_8[cont]
+            
+            if cont == xBits-1 or ((ch+1)*(f+1)*(c+1) == largo_total):
+                
+                o_weights+=f'''{macro_converter(suma)},'''
+                cont = 0
+                suma = 0
+                
+            else:
+                cont+=1
+    
+    o_weights=o_weights[:-1] #remuevo la ultima coma
+    o_code=f'''
+  static const {block_type} weights{i}[]={{{o_weights}
+  }};
+  static quant_filter_t filter{i} = {{{canales}, {kernel_size}, weights{i}, {macro_converter(biases[i])}}};
+  filtros_b[{i}]=filter{i};
+    '''
+    init_conv_layer+=o_code
+  init_conv_layer+=f'''
+  quant_conv_layer_t layer = {{{filtros},filtros_b}};
+  return layer;
+}}
+  '''
+
+  ret+=init_conv_layer
+
+  return ret
+
+
+
+
+
 def get_weights_dense(layer):
   '''
     Function to return model weights from dense layer in a way our model can work with
@@ -209,6 +325,103 @@ def get_weights_dense(layer):
   weights=layer.get_weights()[0]
   biases=layer.get_weights()[1]
   return weights,biases
+
+
+def get_weights_dense_binary(layer):
+  '''
+    Function to return model weights from dense layer in a way our model can work with
+    Params:
+    layer -> dense layer
+    
+    Returns:
+    Tuple with values: weights y biases
+    weights -> array with dimentions: (input,neurons)
+    biases -> array with dimention: (filters)
+
+    Example: weights,bias=get_weights_cnn(layerCNN)
+  '''
+  assert 'quant_dense' in layer.name #Get sure it is a dense layer
+  with lq.context.quantized_scope(True):
+      weights=layer.get_weights()[0]
+      biases=layer.get_weights()[1]
+  return weights,biases
+
+
+
+def exportar_densa_binaria_a_c(layer, nro, macro_converter, data_type,block_type,xBits):
+  '''
+    Builds embedia's init_dense_layer function
+    Receives
+    layer          --> instance of a layer from a model (model.layers[i])
+    nro            --> from input to output, the number corresponding to the position of this layer
+    macro_converter--> a macro used if working with embedia fixed. Adds macro to numbers in c code
+    data_type      --> 'float' or 'fixed' depending embedia optinons
+
+    Returns:
+    String with c code representing the function with model dense weights
+  '''
+  pesos,biases=get_weights_dense_binary(layer)
+  input,neuronas=pesos.shape
+  toti = pesos[:,0].size
+  suma = 0 
+  cont = 0
+  cont2 = 0
+  ret=""
+
+  init_dense_layer=f'''
+quant_dense_layer_t init_dense_binary_layer{nro}(){{
+  // Cantidad de variables weights = numero de neuronas
+  // Cantidad de pesos por weights = numero de entradas
+
+  static quant_neuron_t neuronas_b[{neuronas}];
+  '''
+  o_code=""
+  for neurona in range(neuronas):
+    suma = 0
+    cont = 0
+    cont2 = 0
+    o_weights=""
+    #for p in pesos[neurona,:]:
+    for p in pesos[:,neurona]:
+        cont2+=1
+        if xBits==16:
+            if p == 1.0:  
+                suma += mascara_global_bits_16[cont]
+        elif xBits==32:
+            if p == 1.0: 
+                suma += mascara_global_bits_32[cont]
+        else:
+            if p == 1.0: 
+                suma += mascara_global_bits_8[cont]
+        
+        if cont == xBits-1 or (cont2 == toti):
+            
+            o_weights+=f'''{macro_converter(suma)},'''
+            cont = 0
+            suma = 0
+            
+        else:
+            cont+=1
+      
+    o_weights=o_weights[:-1] #remuevo la ultima coma
+   
+    o_code+=f'''
+  static const {block_type} weights{neurona}[]={{
+    {o_weights}
+  }};
+  static quant_neuron_t neuron{neurona} = {{weights{neurona}, {macro_converter(biases[neurona])}}};
+  neuronas_b[{neurona}]=neuron{neurona};
+    '''
+  init_dense_layer+=o_code
+
+  init_dense_layer+=f'''
+  quant_dense_layer_t layer= {{{neuronas}, neuronas_b}};
+  return layer;
+}}
+'''
+  return init_dense_layer
+
+
 
 def exportar_densa_a_c(layer,nro, macro_converter, data_type):
   '''
@@ -238,7 +451,7 @@ dense_layer_t init_dense_layer{nro}(){{
     o_weights=""
     #for p in pesos[neurona,:]:
     for p in pesos[:,neurona]:
-      o_weights+=f'''{macro_converter(p)}, '''
+      o_weights+=f'''{macro_converter(p)},'''
     o_weights=o_weights[:-1] #remuevo la ultima coma
     #o_weights+='\n'
     o_code+=f'''
@@ -256,6 +469,8 @@ dense_layer_t init_dense_layer{nro}(){{
 }}
 '''
   return init_dense_layer
+
+
 
 
 def get_parameters_batchnorm(layer):
@@ -281,7 +496,6 @@ def get_parameters_batchnorm(layer):
   gamma_variance = np.array([(gamma[i] / sqrt(moving_variance[i] + epsilon)) for i in range(gamma.size)])
 
   return gamma,beta,moving_mean,moving_variance,gamma_variance
-
 
 def exportar_batchnorm_a_c(layer, nro, macro_converter, data_type):
   '''
@@ -352,10 +566,13 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   return ret
 
 
+
+
+
 #=================================
 
 #CREATE MODEL INIT FUNCTION
-def create_model_init(cantConv,cantDensas,cantSeparable,cantBatchNorm):
+def create_model_init(cantConv,cantDensas,cantSeparable,cantConvBinary,cantDensasBinary,cantConvBinaryInputNotBinary,cantBatchNorm):
   #Begin model_init function string
   model_init = f'''
 void model_init(){{
@@ -368,7 +585,12 @@ void model_init(){{
 
   for i in range(cantDensas):
     model_init+=f'''    dense_layer{i} = init_dense_layer{i}(); //Capa densa {i+1}\n'''
-
+  for i in range(cantConvBinary):
+    model_init+=f'''    conv_binary_layer{i} = init_conv_binary_1_layer{i}(); //Capa conv binary {i+1}\n'''
+  for i in range(cantDensasBinary):
+    model_init+=f'''    dense_binary_layer{i} = init_dense_binary_layer{i}(); //Capa densa binaria{i+1}\n'''
+  for i in range(cantConvBinaryInputNotBinary):
+    model_init+=f'''    conv_binary_input_not_binary_layer{i} = init_conv_binary_0_layer{i}(); //Capa conv binaria input not binary {i+1}\n'''
   for i in range(cantBatchNorm):
     model_init+=f'''    batchnorm_layer{i} = init_batchnorm_layer{i}(); // Capa BatchNormalization {i+1}\n'''
   
@@ -558,40 +780,186 @@ def model_predict_dense(layer,index,layerNumber,options,isLastLayer=False):
     '''
   return ret
 
-def model_predict_batchnorm(layer, index, layerNumber, options, flatten):
-  ret = f'''
-  // Capa {layerNumber}: BatchNormalization'''
-  if (not flatten):
-    # Estamos trabajando con data_t
-    ret += f'''
-  batch_normalization(batchnorm_layer{index}, input, &output);  
+
+
+
+#NEWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW
+def model_predict_conv_binary_input_not_binary(layer,index,isFirst,layerNumber,options):
+    
+    #me aseguro que tenga una activacion implementada
+    assert layer.activation==keras.activations.relu or layer.activation==keras.activations.tanh
+
+    ret=f'''
+    // Capa {layerNumber}: Conv 2D  binary input not binary
+    quant_conv2d_input_not_binary_layer(conv_binary_input_not_binary_layer{index},input,&output);
+      '''
+    if options.debug_mode != DebugMode.DISCARD:
+      ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Output matrix layer {layerNumber} (Conv 2D): ", output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    if layer.activation==keras.activations.relu:
+      ret+=f'''// Activation Layer {layerNumber}: relu
+    relu(output);
+      '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Activation Layer {layerNumber} (Relu): ", output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    elif layer.activation==keras.activations.tanh:
+      ret+=f'''// Activation Layer {layerNumber}: tanh
+    tanh2d(output);
+      '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Activation Layer {layerNumber} (Tanh): ", output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    ret+='''input=output;
+    '''
+    return ret
+
+
+def model_predict_conv_binary(layer,index,isFirst,layerNumber,options):
+
+    #me aseguro que tenga una activacion implementada
+    assert layer.activation==keras.activations.relu or layer.activation==keras.activations.tanh
+
+    ret=f'''
+    // Capa {layerNumber}: Conv 2D full binary
+    quant_conv2d(conv_binary_layer{index},input,&output);
+      '''
+    if options.debug_mode != DebugMode.DISCARD:
+      ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Output matrix layer {layerNumber} (Conv 2D): ", output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    if layer.activation==keras.activations.relu:
+      ret+=f'''// Activation Layer {layerNumber}: relu
+    relu(output);
+      '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Activation Layer {layerNumber} (Relu): ", output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    elif layer.activation==keras.activations.tanh:
+      ret+=f'''// Activation Layer {layerNumber}: tanh
+    tanh2d(output);
+      '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Activation Layer {layerNumber} (Tanh): ", output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    ret+='''input=output;
+    '''
+    return ret
+
+
+
+def model_predict_dense_binary(layer,index,layerNumber,options,isLastLayer=False):
+    
+    assert layer.activation==keras.activations.relu or layer.activation==keras.activations.softmax or layer.activation==keras.activations.tanh
+    ret = f'''
+    // Capa {layerNumber}: Dense full binary
+    quant_dense_forward(dense_binary_layer{index},f_input,&f_output);
     '''
     if options.debug_mode != DebugMode.DISCARD:
       ret+=f'''
         #if EMBEDIA_DEBUG > 0
-        print_data_t("Output matrix layer {layerNumber} (BatchNormalization): ", output);
+        print_flatten_data_t("Output Vector Layer {layerNumber} (Dense): ",f_output);
+        #endif // EMBEDIA_DEBUG
+      '''
+    if layer.activation==keras.activations.relu:
+      ret+=f'''
+    //Activación Capa {layerNumber}: relu
+    relu_flatten(f_output);
+    '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_flatten_data_t("Activation Layer {layerNumber} (Relu): ", f_output);
         #endif // EMBEDIA_DEBUG
         '''
-    ret+='''input = output;
+    elif layer.activation==keras.activations.softmax:
+      ret+=f'''
+    //Activación Capa {layerNumber}: softmax
+    softmax(f_output);
+      '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_flatten_data_t("Activation Layer {layerNumber} (Softmax): ", f_output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    elif layer.activation==keras.activations.tanh:
+      ret+=f'''
+    //Activación Capa {layerNumber}: tanh
+    tanh_flatten(f_output);
+    '''
+      if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+        #if EMBEDIA_DEBUG > 0
+        print_flatten_data_t("Activation Layer {layerNumber} (Tanh): ", f_output);
+        #endif // EMBEDIA_DEBUG
+        '''
+    if (not isLastLayer):
+      ret+='''f_input = f_output;
+      '''
+    return ret
+
+
+
+def model_predict_batchnorm(layer, index, layerNumber, options, flatten,isLastLayer=False):
+  ret = f'''
+  // Capa {layerNumber}: BatchNormalization
   '''
-  else:
-    # Estamos trabajando con flatten_data_t
+  if (not flatten):
+    # Estamos trabajando con data_t
     ret += f'''
-  batch_normalization_flatten(batchnorm_layer{index}, f_input, &f_output);
+    batch_normalization(batchnorm_layer{index}, input,&output);  
     '''
     if options.debug_mode != DebugMode.DISCARD:
       ret+=f'''
-      #if EMBEDIA_DEBUG > 0
-      print_flatten_data_t("Output Vector Layer {layerNumber} (BatchNormalization): ", f_output);
-      #endif // EMBEDIA_DEBUG
-      '''
-    ret+='''f_input = f_output;
-  '''
-  
+        #if EMBEDIA_DEBUG > 0
+        print_data_t("Output matrix layer {layerNumber} (BatchNormalization): ", input);
+        #endif // EMBEDIA_DEBUG
+        '''
+    if (not isLastLayer):
+        ret+='''input = output;
+        '''
+  else:
+    # Estamos trabajando con flatten_data_t
+    ret += f'''
+    batch_normalization_flatten(batchnorm_layer{index}, f_input,&f_output);
+    '''
+    if options.debug_mode != DebugMode.DISCARD:
+        ret+=f'''
+          #if EMBEDIA_DEBUG > 0
+          print_flatten_data_t("Output Vector Layer {layerNumber} (BatchNormalization): ", f_output);
+          #endif // EMBEDIA_DEBUG
+          '''
+    if (not isLastLayer):
+        ret+='''f_input = f_output;
+        '''
   return ret
 
-#CREATE MODEL PREDICT FUNCTION
-def create_model_predict(model,options):
+
+
+
+
+
+
+#CREATE MODEL PREDICT FUNCTION recibe modelo binario o no (1 si es binario y utiliza larq)
+def create_model_predict(model,options,binario):
   ret='''
 int model_predict(data_t input, flatten_data_t * results){
   data_t output;
@@ -608,48 +976,142 @@ int model_predict(data_t input, flatten_data_t * results){
   cantSeparable=0
   cantConv=0
   cantDensas=0
+  cantConvBinary = 0
+  cantDensasBinary = 0
+  cantConvBinaryInputNotBinary = 0
   cantBatchNorm=0
-
+  
   flatten_data = False
+  
+  if(not binario):
 
-  for i,layer in enumerate(model.layers):
-    if 'separable_conv2d' in layer.name:
-      ret+=model_predict_separable(layer,cantSeparable,i==0,i+1,options)
-      cantSeparable+=1
-    elif 'conv2d' in layer.name:
-      ret+=model_predict_conv(layer,cantConv,i==0,i+1,options)
-      cantConv+=1
-    elif 'dense' in layer.name:
-      ret+=model_predict_dense(layer,cantDensas,i+1,options,i+1==len(model.layers))
-      cantDensas+=1
-      flatten_data = True
-    elif 'max_pooling2d' in layer.name:
-      pool_size,_=layer.pool_size
-      stride,_=layer.strides
-      ret+=model_predict_maxPool(pool_size,stride,i+1,options)
-    elif 'average_pooling2d' in layer.name:
-      pool_size,_=layer.pool_size
-      stride,_=layer.strides
-      ret+=model_predict_avgPool(pool_size,stride,i+1,options)
-    elif 'flatten' in layer.name:
-      ret+=model_predict_flatten(i+1,options)
-      flatten_data = True
-    elif 'batch_normalization' in layer.name:
-      ret+=model_predict_batchnorm(layer, cantBatchNorm, i+1, options, flatten_data)
-      cantBatchNorm += 1
-      flatten_data = False
-    else:
-      return f"Error: No support for layer {layer} which is of type {layer.activation}"
-
-  ret+='''
-  int result= argmax(f_output);
-  *results = f_output;
-  return result;
-}
-  '''
-  return ret
-
-
+      for i,layer in enumerate(model.layers):
+        if 'separable_conv2d' in layer.name:
+          ret+=model_predict_separable(layer,cantSeparable,i==0,i+1,options)
+          cantSeparable+=1
+        elif 'conv2d' in layer.name:
+          ret+=model_predict_conv(layer,cantConv,i==0,i+1,options)
+          cantConv+=1
+        elif 'dense' in layer.name:
+          ret+=model_predict_dense(layer,cantDensas,i+1,options,i+1==len(model.layers))
+          cantDensas+=1
+          flatten_data = True
+        elif 'max_pooling2d' in layer.name:
+          pool_size,_=layer.pool_size
+          stride,_=layer.strides
+          ret+=model_predict_maxPool(pool_size,stride,i+1,options)
+        elif 'average_pooling2d' in layer.name:
+          pool_size,_=layer.pool_size
+          stride,_=layer.strides
+          ret+=model_predict_avgPool(pool_size,stride,i+1,options)
+        elif 'flatten' in layer.name:
+          ret+=model_predict_flatten(i+1,options)
+          flatten_data = True
+        elif 'batch_normalization' in layer.name:
+          ret+=model_predict_batchnorm(layer, cantBatchNorm, i+1, options, flatten_data,i+1==len(model.layers))
+          cantBatchNorm += 1
+          flatten_data = False
+        
+        else:
+          return f"Error: No support for layer {layer} which is of type {layer.activation}"
+    
+      ret+='''
+      int result= argmax(f_output);
+      *results = f_output;
+      return result;
+    }
+      '''
+      return ret
+  else:
+      with lq.context.quantized_scope(True):
+          for i,layer in enumerate(model.layers):
+            if 'separable_conv2d' in layer.name:
+              ret+=model_predict_separable(layer,cantSeparable,i==0,i+1,options)
+              cantSeparable+=1
+            elif 'quant_conv2d' in layer.name:
+                if (layer.get_config()['input_quantizer'] == None) and (layer.get_config()['kernel_quantizer'] == None):
+                    #es una conv normal
+                    ret+=model_predict_conv(layer,cantConv,i==0,i+1,options)
+                    cantConv+=1
+                elif (layer.get_config()['input_quantizer'] == None) and (layer.get_config()['kernel_quantizer'] != None):        
+                    if (layer.get_config()['kernel_quantizer']['class_name'] == 'SteSign'):
+                       #entrada no binaria
+                       ret+=model_predict_conv_binary_input_not_binary(layer,cantConvBinaryInputNotBinary,i==0,i+1,options)
+                       cantConvBinaryInputNotBinary+=1
+                    else:
+                        print(f"Error: No support for layer {layer} with this arguments")
+                        raise f"Error: No support for layer {layer} with this arguments"
+                elif (layer.get_config()['input_quantizer'] != None) and (layer.get_config()['kernel_quantizer'] != None):
+                    if (layer.get_config()['input_quantizer']['class_name'] == 'SteSign') and (layer.get_config()['kernel_quantizer']['class_name'] == 'SteSign'):
+                        #conv pura binaria
+                        ret+=model_predict_conv_binary(layer,cantConvBinary,i==0,i+1,options)
+                        cantConvBinary+=1
+                    else:
+                        print(f"Error: No support for layer {layer} with this arguments")
+                        raise f"Error: No support for layer {layer} with this arguments"
+                else:
+                    print(f"Error: No support for layer {layer} with this arguments")
+                    raise f"Error: No support for layer {layer} with this arguments"
+              
+            elif 'quant_dense' in layer.name:
+                if (layer.get_config()['input_quantizer'] == None) and (layer.get_config()['kernel_quantizer'] == None):
+                    #es una desnse normal
+                    ret+=model_predict_dense(layer,cantDensas,i+1,options,i+1==len(model.layers))
+                    cantDensas+=1
+                    flatten_data = True
+                elif (layer.get_config()['input_quantizer'] == None) and (layer.get_config()['kernel_quantizer'] != None):        
+                    
+                       #entrada no binaria
+                       print(f"Error: No support for layer {layer} with this arguments")
+                       raise f"Error: No support for layer {layer} with this arguments"
+                    
+                elif (layer.get_config()['input_quantizer'] != None) and (layer.get_config()['kernel_quantizer'] != None):
+                    if (layer.get_config()['input_quantizer']['class_name'] == 'SteSign') and (layer.get_config()['kernel_quantizer']['class_name'] == 'SteSign'):
+                        #dnse pura binaria
+                        ret+=model_predict_dense_binary(layer,cantDensasBinary,i+1,options,i+1==len(model.layers))
+                        cantDensasBinary+=1
+                        flatten_data = True
+                    else:
+                        print(f"Error: No support for layer {layer} with this arguments")
+                        raise f"Error: No support for layer {layer} with this arguments"
+                else:
+                    print(f"Error: No support for layer {layer} with this arguments")
+                    raise f"Error: No support for layer {layer} with this arguments"
+             
+            
+            elif 'conv2d' in layer.name:
+              ret+=model_predict_conv(layer,cantConv,i==0,i+1,options)
+              cantConv+=1
+            elif 'dense' in layer.name:
+              ret+=model_predict_dense(layer,cantDensas,i+1,options,i+1==len(model.layers))
+              cantDensas+=1
+              flatten_data = True
+            elif 'max_pooling2d' in layer.name:
+              pool_size,_=layer.pool_size
+              stride,_=layer.strides
+              ret+=model_predict_maxPool(pool_size,stride,i+1,options)
+            elif 'average_pooling2d' in layer.name:
+              pool_size,_=layer.pool_size
+              stride,_=layer.strides
+              ret+=model_predict_avgPool(pool_size,stride,i+1,options)
+            elif 'flatten' in layer.name:
+              ret+=model_predict_flatten(i+1,options)
+              flatten_data = True
+            elif 'batch_normalization' in layer.name:
+              ret+=model_predict_batchnorm(layer, cantBatchNorm, i+1, options, flatten_data,i+1==len(model.layers))
+              cantBatchNorm += 1
+              flatten_data = False
+            
+            else:
+              return f"Error: No support for layer {layer}"
+        
+          ret+='''
+          int result= argmax(f_output);
+          *results = f_output;
+          return result;
+        }
+          '''
+          return ret
 
 def create_codeblock_project(project_name,files):
     output=f'''

@@ -26,7 +26,7 @@ void print_data_t(const char *head_text, data_t data){
 
     PRINT_TXT_LN(STR_CONTENT);
 
-    uint16_t c,h,w;
+    uint32_t c,h,w;
     for(c=0;c<data.channels;c++){
         for(h=0;h<data.height;h++){
             for(w=0;w<data.width;w++){
@@ -60,7 +60,7 @@ void print_flatten_data_t(const char *head_text, flatten_data_t data){
 
     PRINT_TXT_LN(STR_CONTENT);
 
-    uint16_t i;
+    uint32_t i;
     for(i=0;i<data.length;i++){
         PRINT_FL("", data.data[i]);
     }
@@ -91,7 +91,7 @@ void print_filter_t(const char *head_text, filter_t filter){
 
 	printf(STR_CONTENT);
 
-	uint16_t c,h,w;
+	uint32_t c,h,w;
 	for(c=0;c<filter.channels;c++){
 		for(h=0;h<filter.kernel_size;h++){
 			for(w=0;w<filter.kernel_size;w++){

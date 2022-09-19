@@ -6,9 +6,21 @@
 
 #include "embedia.h"
 
+/* IMPLEMENTACIÓN DE FUNCIONES DE LA LIBRERÍA EmbedIA DEFINIDAS EN embedia.h */
+
+
+uint8_t sign(float x){
+    if(x>=0){
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+
 
 typedef struct{
-	size_t  size;
+	size_t size;
 	void  * data;
 } raw_buffer;
 
@@ -16,7 +28,7 @@ typedef struct{
 raw_buffer buffer1 = {0, NULL};
 raw_buffer buffer2 = {0, NULL};
 
-void * swap_alloc(size_t s){
+void * swap_alloc(size_t s){ 
 	static raw_buffer * last_buff = &buffer2;
 	last_buff = (last_buff==&buffer1) ? &buffer2 : &buffer1;
 	
@@ -29,7 +41,191 @@ void * swap_alloc(size_t s){
 }
 
 
-/* IMPLEMENTACIÓN DE FUNCIONES DE LA LIBRERÍA EmbedIA DEFINIDAS EN embedia.h */
+
+int count_set_bits_Brian_Kernighan_algorithm(xBYTE n) {
+  register int count = 0;
+  while(n) {
+    count++;
+    n = n & (n-1);
+  }
+
+  return count;
+  //return __builtin_popcount(n);
+}
+
+dato_salida POPCOUNT(xBYTE n){
+
+    return 2*count_set_bits_Brian_Kernighan_algorithm(n) - tamano_del_bloque;
+
+}
+
+
+
+xBYTE XNOR(register xBYTE a,register xBYTE b){
+
+    return ~(a^b);
+
+}
+
+
+
+
+
+void quant_conv2d_input_not_binary(quant_filter_t filter, data_t input, data_t * output, uint32_t delta){
+
+    uint32_t i,j,k,l,c;
+	dato_salida suma;
+	register uint32_t offset_absoluto;
+
+	for (i=0; i<output->height; i++){
+		for (j=0; j<output->width; j++){
+			suma = 0;
+			for (c=0; c<filter.channels; c++){
+				for (k=0; k<filter.kernel_size; k++){
+					for (l=0; l<filter.kernel_size; l++){
+                        offset_absoluto = (c*filter.kernel_size*filter.kernel_size)+k*filter.kernel_size+l;
+                        if((filter.bitarray[offset_absoluto / tamano_del_bloque] & mascara_global_bits[offset_absoluto % tamano_del_bloque])>>(tamano_del_bloque-(offset_absoluto % tamano_del_bloque)-1)){
+                            suma += (input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)]);
+                        }else{
+                            suma += ((-1) * input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)]);
+                        }
+					}
+				}
+			}
+			output->data[delta + i*output->width + j] = suma + filter.bias;
+		}
+	}
+
+
+}
+
+
+void quant_conv2d_input_not_binary_layer(quant_conv_layer_t layer, data_t input, data_t *output){
+
+    uint32_t delta;
+
+	output->channels = layer.n_filters; //cantidad de filtros
+	output->height   = input.height - layer.filters[0].kernel_size + 1;
+	output->width    = input.width - layer.filters[0].kernel_size + 1;
+	output->data     = (dato_salida*)swap_alloc( sizeof(dato_salida)*output->channels*output->height*output->width );
+
+	for(uint32_t i=0; i<layer.n_filters; i++){
+		delta = i*(output->height)*(output->width);
+        quant_conv2d_input_not_binary(layer.filters[i],input,output,delta);
+	}
+
+
+}
+
+
+
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+void quant_conv2d(quant_conv_layer_t layer, data_t input, data_t *output){   //sirve para entrada bin
+
+    uint32_t i,j,k,l,c,f;
+
+    output->channels = layer.n_filters; //cantidad de filtros
+	output->height   = input.height - layer.filters[0].kernel_size + 1;
+	output->width    = input.width - layer.filters[0].kernel_size + 1;
+	output->data     = (dato_salida*)swap_alloc( sizeof(dato_salida)*(output->channels*output->height*output->width) );
+
+    register uint32_t cont;
+    xBYTE suma;
+    size_t output_hw = output->height*output->width;
+    size_t iterador;
+    uint8_t long_ult_bloque = (layer.filters[0].kernel_size*layer.filters[0].channels*layer.filters[0].kernel_size) % tamano_del_bloque;
+
+    for(iterador=0;iterador<output->channels*output_hw;iterador++){ //valores a cero
+        output->data[iterador] = 0;
+    }
+
+    for (i=0; i<output->height; i++){
+		for (j=0; j<output->width; j++){
+			cont = 0;
+			suma = 0;
+			for (c=0; c<layer.filters[0].channels; c++){
+				for (k=0; k<layer.filters[0].kernel_size; k++){
+					for (l=0; l<layer.filters[0].kernel_size; l++){
+
+						if(sign(input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)])){
+                            suma+= mascara_global_bits[cont%tamano_del_bloque];
+						}
+						if(((++cont)%tamano_del_bloque)==0){
+                            //ya tengo el num
+                            for(f=0;f<layer.n_filters;f++){
+                                output->data[(f*output_hw) + i*output->width + j] += POPCOUNT(XNOR(suma,layer.filters[f].bitarray[(cont/tamano_del_bloque)-1]));
+                            }
+                            suma = 0;
+						}
+					}
+				}
+				//termino un canal
+			}
+			//ya tenemos una fila de la matriz de salida
+            if(long_ult_bloque!=0){ //bloque extra
+                for(f=0;f<layer.n_filters;f++){
+                    output->data[(f*output_hw) + i*output->width + j] += POPCOUNT(XNOR(suma,layer.filters[f].bitarray[cont/tamano_del_bloque])) - (tamano_del_bloque-long_ult_bloque) + layer.filters[f].bias;
+                }
+            }else{  //solo bias
+                for(f=0;f<layer.n_filters;f++){
+                    output->data[(f*output_hw) + i*output->width + j] += layer.filters[f].bias;
+                }
+            }
+            //ahora se corre el kernel
+		}
+	}
+}
+
+
+void quant_dense_forward(quant_dense_layer_t dense_layer, flatten_data_t input, flatten_data_t * output){
+
+    uint32_t bloques_enteros = input.length / tamano_del_bloque;
+    uint8_t long_ult = input.length % tamano_del_bloque;
+    output->length = dense_layer.n_neurons;
+	output->data = (dato_salida*)swap_alloc(sizeof(dato_salida)*dense_layer.n_neurons);
+
+    uint32_t i;
+    register uint32_t cont;
+    uint8_t j;
+    xBYTE tot=0;
+
+    size_t iterador;
+    for(iterador=0;iterador<output->length;iterador++){ //valores a cero
+        output->data[iterador] = 0;
+    }
+
+    for(i=0;i<bloques_enteros;i++){
+        for(j=0;j<tamano_del_bloque;j++){
+            if(sign(input.data[j+(tamano_del_bloque*i)])){
+
+                tot += mascara_global_bits[j];
+            }
+        }
+        for(cont = 0;cont<dense_layer.n_neurons;cont++){
+            output->data[cont] += POPCOUNT(XNOR(dense_layer.neurons[cont].weights[i],tot));
+        }
+        tot = 0;
+    }
+	if(long_ult!=0){
+        for(j=0;j<long_ult;j++){
+            if(sign(input.data[j])){
+                tot += mascara_global_bits[j];
+            }
+        }
+        for(cont = 0;cont<dense_layer.n_neurons;cont++){
+            output->data[cont] += POPCOUNT(XNOR(dense_layer.neurons[cont].weights[bloques_enteros],tot)) - (tamano_del_bloque-long_ult) + dense_layer.neurons[cont].bias;
+        }
+    }else{  //solo bias
+        for(cont=0;cont<dense_layer.n_neurons;cont++){
+            output->data[cont] += dense_layer.neurons[cont].bias;
+        }
+    }
+
+}
+
+
+
+
 
 /* 
  * conv2d()
@@ -42,7 +238,7 @@ void * swap_alloc(size_t s){
  */
 void conv2d(filter_t filter, data_t input, data_t * output, uint32_t delta){
 	uint32_t i,j,k,l,c;
-	fixed suma;
+	float suma;
 
 	for (i=0; i<output->height; i++){
 		for (j=0; j<output->width; j++){
@@ -50,11 +246,10 @@ void conv2d(filter_t filter, data_t input, data_t * output, uint32_t delta){
 			for (c=0; c<filter.channels; c++){
 				for (k=0; k<filter.kernel_size; k++){
 					for (l=0; l<filter.kernel_size; l++){
-						suma += FIXED_MUL(filter.weights[(c*filter.kernel_size*filter.kernel_size)+k*filter.kernel_size+l] , input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)]);
+						suma += (filter.weights[(c*filter.kernel_size*filter.kernel_size)+k*filter.kernel_size+l] * input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)]);
 					}
 				}
 			}
-			
 			output->data[delta + i*output->width + j] = suma + filter.bias;
 		}
 	}
@@ -76,8 +271,8 @@ void conv2d_layer(conv_layer_t layer, data_t input, data_t * output){
 	output->channels = layer.n_filters; //cantidad de filtros
 	output->height   = input.height - layer.filters[0].kernel_size + 1;
 	output->width    = input.width - layer.filters[0].kernel_size + 1;
-	output->data     = (fixed*)swap_alloc( sizeof(fixed)*output->channels*output->height*output->width );
-	
+	output->data     = (float*)swap_alloc( sizeof(float)*output->channels*output->height*output->width );
+
 	for(uint32_t i=0; i<layer.n_filters; i++){
 		delta = i*(output->height)*(output->width);
 		conv2d(layer.filters[i],input,output,delta);
@@ -87,7 +282,7 @@ void conv2d_layer(conv_layer_t layer, data_t input, data_t * output){
 
 void depthwise(filter_t filter, data_t input, data_t * output){
 	uint32_t i,j,k,l,c;
-	fixed suma;
+	float suma;
 
 	for (i=0; i<output->height; i++){
 		for (j=0; j<output->width; j++){
@@ -95,7 +290,7 @@ void depthwise(filter_t filter, data_t input, data_t * output){
 				suma=0;
 				for (k=0; k<filter.kernel_size; k++){
 					for (l=0; l<filter.kernel_size; l++){
-						suma += FIXED_MUL(filter.weights[(c*filter.kernel_size*filter.kernel_size)+k*filter.kernel_size+l] , input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)]);
+						suma += (filter.weights[(c*filter.kernel_size*filter.kernel_size)+k*filter.kernel_size+l] * input.data[(c*input.height*input.width)+(i+k)*input.width+(j+l)]);
 					}
 				}
 				output->data[c*output->width*output->height + i*output->width + j] = suma;
@@ -103,16 +298,15 @@ void depthwise(filter_t filter, data_t input, data_t * output){
 		}
 	}
 }
-
 void pointwise(filter_t filter, data_t input, data_t * output, uint32_t delta){
 	uint32_t i,j,c;
-	fixed suma;
+	float suma;
 
 	for (i=0; i<output->height; i++){
 		for (j=0; j<output->width; j++){
 			suma = 0;
 			for (c=0; c<filter.channels; c++){
-				suma += FIXED_MUL(filter.weights[c], input.data[(c*input.height*input.width)+i*input.width+j]);
+				suma += (filter.weights[c] * input.data[(c*input.height*input.width)+i*input.width+j]);
 			}
 			output->data[delta + i*output->width + j] = suma + filter.bias;
 		}
@@ -121,10 +315,10 @@ void pointwise(filter_t filter, data_t input, data_t * output, uint32_t delta){
 
 /* 
  * separable_conv2d_layer()
- * Función que se encarga de aplicar la convolución de una capa de filtros (separable_layer_t)
+ * Función que se encarga de aplicar la convolución de una capa de filtros (conv_layer_t)
  * sobre un determinado conjunto de datos de entrada.
  * Parámetros:
- *     separable_layer_t layer  =>  capa convolucional separable con filtros cargados
+ *          conv_layer_t layer  =>  capa convolucional con filtros cargados
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
@@ -135,14 +329,14 @@ void separable_conv2d_layer(separable_layer_t layer, data_t input, data_t * outp
 	depth_output.channels = input.channels; //cantidad de canales
 	depth_output.height   = input.height - layer.depth_filter.kernel_size + 1;
 	depth_output.width    = input.width - layer.depth_filter.kernel_size + 1;
-	depth_output.data     = (fixed*)swap_alloc( sizeof(fixed)*depth_output.channels*depth_output.height*depth_output.width );
+	depth_output.data     = (float*)swap_alloc( sizeof(float)*depth_output.channels*depth_output.height*depth_output.width );
 
 	depthwise(layer.depth_filter,input,&depth_output);
 
 	output->channels = layer.n_filters; //cantidad de filtros
 	output->height   = depth_output.height;
 	output->width    = depth_output.width;
-	output->data     = (fixed*)swap_alloc( sizeof(fixed)*output->channels*output->height*output->width );
+	output->data     = (float*)swap_alloc( sizeof(float)*output->channels*output->height*output->width );
 	
 	for(uint32_t i=0; i<layer.n_filters; i++){
 		delta = i*(output->height)*(output->width);
@@ -158,14 +352,14 @@ void separable_conv2d_layer(separable_layer_t layer, data_t input, data_t * outp
  *             neuron_t neuron  =>  neurona con sus pesos y bias cargados
  *        flatten_data_t input  =>  datos de entrada en forma de vector (flatten_data_t)
  * Retorna:
- *                      fixed  =>  resultado de la operación             
+ *                      float  =>  resultado de la operación             
  */
-fixed neuron_forward(neuron_t neuron, flatten_data_t input){
+float neuron_forward(neuron_t neuron, flatten_data_t input){
 	uint32_t i;
-	fixed result = 0;
+	float result = 0;
 
 	for(i=0;i<input.length;i++){
-		result += FIXED_MUL(input.data[i],neuron.weights[i]);
+		result += input.data[i]*neuron.weights[i];
 	}
 
 	return result + neuron.bias;
@@ -180,14 +374,12 @@ fixed neuron_forward(neuron_t neuron, flatten_data_t input){
  *               flatten_data_t input  =>  datos de entrada de tipo flatten_data_t
  *            flatten_data_t * output  =>  puntero a la estructura flatten_data_t donde se guardará el resultado
  */
-
-
 void dense_forward(dense_layer_t dense_layer, flatten_data_t input, flatten_data_t * output){
 	uint32_t i;
 
 	output->length = dense_layer.n_neurons;
-	output->data = (fixed*)swap_alloc(sizeof(fixed)*dense_layer.n_neurons);
-
+	output->data = (float*)swap_alloc(sizeof(float)*dense_layer.n_neurons);
+	
 	for(i=0;i<dense_layer.n_neurons;i++){
 		output->data[i] = neuron_forward(dense_layer.neurons[i],input);
 	}
@@ -202,27 +394,28 @@ void dense_forward(dense_layer_t dense_layer, flatten_data_t input, flatten_data
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
+// void max_pooling_2d(uint32_t strides, data_t input, data_t* output){
 void max_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output){
 	uint32_t c,i,j,aux1,aux2;
-	fixed max = -FIX_MAX;
-	fixed num;
+	float max = -INFINITY;
+	float num;
 
-	// output->height = (input.height)/strides ;//+ (input.height%strides ? 0 : 1);
-	// output->width =  (input.width )/strides ;//+ (input.width %strides ? 0 : 1);
+	// output->height = (input.height)/pool_size ;
+	// output->width =  (input.width )/pool_size ;
 	output->height = ((uint32_t) ((input.height - pool_size)/strides)) + 1;
 	output->width  = ((uint32_t) ((input.width - pool_size)/strides)) + 1;
 	output->channels = input.channels;
-	output->data = (fixed*)swap_alloc(sizeof(fixed)*(output->channels)*(output->height)*(output->width));
+	output->data = (float*)swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
 
 	for (c=0; c<output->channels; c++){
 		for (i=0; i<output->height; i++){
 			for (j=0; j<output->width; j++){
 
-				max = -FIX_MAX;
+				max = -INFINITY;
 
 				for(aux1=0; aux1<pool_size; aux1++){
-						for(aux2=0; aux2<pool_size; aux2++){
-						
+					for(aux2=0; aux2<pool_size; aux2++){
+
 						num = input.data[c*input.width*input.height + (i*strides + aux1)*input.width + j*strides + aux2];
 						
 						if(num>max){
@@ -238,7 +431,7 @@ void max_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* 
 }
 
 /* 
- * avg_pooling2d()
+ * avg_pooling_2d()
  * Función que se encargará de aplicar un average pooling a una entrada
  * con un tamaño de ventana de recibido por parámetro (uint32_t strides)
  * a un determinado conjunto de datos de entrada.
@@ -248,16 +441,16 @@ void max_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* 
  */
 void avg_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output){
 	uint32_t c,i,j,aux1,aux2;
-	dfixed cant = INT_TO_FIXED(pool_size*pool_size);
-	dfixed avg = 0;
-	fixed num;
+	uint32_t cant = pool_size*pool_size;
+	float avg = 0;
+	float num;
 
 	// output->height = (input.height)/strides ;
 	// output->width =  (input.width )/strides ;
 	output->height = ((uint32_t) ((input.height - pool_size)/strides)) + 1;
 	output->width  = ((uint32_t) ((input.width - pool_size)/strides)) + 1;
 	output->channels = input.channels;
-	output->data = (fixed*)swap_alloc(sizeof(fixed)*(output->channels)*(output->height)*(output->width));
+	output->data = (float*)swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
 
 	for (c=0; c<output->channels; c++){
 		for (i=0; i<output->height; i++){
@@ -266,13 +459,13 @@ void avg_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* 
 				avg = 0;
 
 				for(aux1=0; aux1<pool_size; aux1++){
-					for(aux2=0; aux2<pool_size; aux2++){
+					for(aux2=0; aux2<pool_size; aux2++){	
 						num = input.data[c*input.width*input.height + (i*strides + aux1)*input.width + j*strides + aux2];
 						avg += num;
-					}	  			
+					}
 				}
 
-				output->data[c*output->width*output->height + i*output->width + j] = FIXED_DIV(avg,cant);
+				output->data[c*output->width*output->height + i*output->width + j] = avg/cant;
 			}
 		}	
 	}
@@ -287,21 +480,21 @@ void avg_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* 
  *         flatten_data_t data  =>  datos de entrada de tipo flatten_data_t
  */
 void softmax(flatten_data_t data){
-	fixed m = -FIX_MAX;
+	float m = -INFINITY;
 	for (size_t i = 0; i < data.length; i++) {
 		if (data.data[i] > m) {
 			m = data.data[i];
 		}
 	}
 
-	fixed sum = FL2FX(0.0);
+	float sum = (0.0);
 	for (size_t i = 0; i < data.length; i++) {
-		sum += fixed_exp(data.data[i] - m);
+		sum += exp(data.data[i] - m);
 	}
 
-	fixed offset = m + fixed_log(sum);
+	float offset = m + log(sum);
 	for (size_t i = 0; i < data.length; i++) {
-		data.data[i] = fixed_exp(data.data[i] - offset);
+		data.data[i] = exp(data.data[i] - offset);
 	}
 }
 
@@ -323,7 +516,7 @@ void relu(data_t data){
 }
 
 /* 
- * relu(flatten_data_t)
+ * relu_flatten(flatten_data_t)
  * Función que implementa la activación relu, convierte un vector de entrada en 
  * una distribución de probabilidades (aplicado a la salida de regresión lineal para
  * obtener una distribución de probabilidades para de cada clase).
@@ -339,7 +532,7 @@ void relu_flatten(flatten_data_t data){
 }
 
 /* 
- * tanh2d(data_t)
+ * tanh(data_t)
  * Función que implementa la activación tanh, convierte un vector de entrada en 
  * una distribución de probabilidades (aplicado a la salida de regresión lineal para
  * obtener una distribución de probabilidades para de cada clase).
@@ -350,8 +543,9 @@ void tanh2d(data_t data){
 	uint32_t i;
 	uint32_t length = data.channels*data.height*data.width;
 
-	for(i=0;i<length;i++){
-		data.data[i] = fixed_tanh(data.data[i]);
+	for (i=0;i<length;i++){
+		// data.data[i] = tanh(data.data[i]); 
+		data.data[i] = 2/(1+exp(-2*data.data[i])) - 1;
 	}
 }
 
@@ -366,10 +560,12 @@ void tanh2d(data_t data){
 void tanh_flatten(flatten_data_t data){
 	uint32_t i;
 
-	for(i=0;i<data.length;i++){
-		data.data[i] = fixed_tanh(data.data[i]);
+	for (i=0;i<(data.length);i++){
+		// data.data[i] = tanh(data.data[i]); 
+		data.data[i] = 2/(1+exp(-2*data.data[i])) - 1;
 	}
 }
+
 
 /* 
  * flatten_layer()
@@ -385,7 +581,7 @@ void flatten_layer(data_t input, flatten_data_t * output){
 	uint32_t cantidad = 0;
 
 	output->length = input.channels * input.height * input.width;
-	output->data = (fixed*)swap_alloc(sizeof(fixed)*output->length);
+	output->data = (float*)swap_alloc(sizeof(float)*output->length);
 
 	for(i=0;i<input.height;i++){
 		for(j=0;j<input.width;j++){
@@ -405,7 +601,7 @@ void flatten_layer(data_t input, flatten_data_t * output){
  *                         uint32_t  =>  resultado de la búsqueda - indice del valor máximo
  */
 uint32_t argmax(flatten_data_t data){
-	fixed max = data.data[0];
+	float max = data.data[0];
 	uint32_t pos = 0;
 
 	for(uint32_t i=1;i<data.length;i++){
@@ -417,7 +613,6 @@ uint32_t argmax(flatten_data_t data){
 	
 	return pos;
 }
-
 
 
 
@@ -438,12 +633,12 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) 
 	output->height = input.height;
 	output->width  = input.width;
 	output->channels = input.channels;
-	output->data = (fixed*) swap_alloc(sizeof(fixed)*(output->channels)*(output->height)*(output->width));
+	output->data = (float*) swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
 
-	for (i = 0; i < input.channels; i++) {
+	for (i = 0; i < output->channels; i++) {
 		ilen = i*length;
 		for (j = 0; j < length; j++) {
-			output->data[ilen+j] = FIXED_MUL(input.data[ilen+j] - layer.moving_mean[i], layer.gamma_variance[i]) + layer.beta[i];
+			output->data[ilen+j] = (input.data[ilen+j] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
 		}
 	}
 }
@@ -461,10 +656,10 @@ void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, 
 	uint32_t i;
 
 	output->length = input.length;
-	output->data = (fixed*) swap_alloc(sizeof(fixed)*output->length);
+	output->data = (float*) swap_alloc(sizeof(float)*output->length);
 
 	for (i = 0; i < output->length; i++) {
-		//output->data[i] = (input.data[i] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
-		output->data[i] = FIXED_MUL(input.data[i] - layer.moving_mean[i], layer.gamma_variance[i]) + layer.beta[i];
+		output->data[i] = (input.data[i] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
 	}
 }
+

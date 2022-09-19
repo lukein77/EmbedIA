@@ -18,34 +18,34 @@
 /*
  * typedef struct data_t
  * Estructura que almacena una matriz de datos de tipo fixed  (fixed  * data) en forma de vector
- * Especifica la cantidad de canales (uint16_t channels), el ancho (uint16_t width) y el alto (uint16_t height) de la misma
+ * Especifica la cantidad de canales (uint32_t channels), el ancho (uint32_t width) y el alto (uint32_t height) de la misma
  */
 typedef struct{
-    uint16_t channels;
-    uint16_t width;
-    uint16_t height;
+    uint32_t channels;
+    uint32_t width;
+    uint32_t height;
     fixed  * data;
 }data_t;
 
 /*
  * typdef struct flatten_data_t
  * Estructura que almacena un vector de datos de tipo fixed  (fixed  * data).
- * Especifica el largo del mismo (uint16_t length).
+ * Especifica el largo del mismo (uint32_t length).
  */
 typedef struct{
-    uint16_t length;
+    uint32_t length;
     fixed  * data;
 }flatten_data_t;
 
 /*
  * typedef struct filter_t
  * Estructura que almacena los pesos de un filtro.
- * Especifica la cantidad de canales (uint16_t channels), su tamaño (uint16_t kernel_size),
+ * Especifica la cantidad de canales (uint32_t channels), su tamaño (uint32_t kernel_size),
  * los pesos (fixed  * weights) y el bias (fixed  bias).
  */
 typedef struct{
-    uint16_t channels;
-    uint16_t kernel_size;
+    uint32_t channels;
+    uint32_t kernel_size;
     const fixed  * weights;
     fixed  bias; 
 }filter_t;
@@ -53,22 +53,22 @@ typedef struct{
 /*
  * typedef struct conv_layer_t
  * Estructura que modela una capa convolucional.
- * Especifica la cantidad de filtros (uint16_t n_filters) y un vector de filtros (filter_t * filters) 
+ * Especifica la cantidad de filtros (uint32_t n_filters) y un vector de filtros (filter_t * filters) 
  */
 typedef struct{
-    uint16_t n_filters;
+    uint32_t n_filters;
     filter_t * filters; 
 }conv_layer_t;
 
 /*
  * typedef struct conv_layer_t
  * Estructura que modela una capa separable..
- * Especifica la cantidad de filtros (uint16_t n_filters,
+ * Especifica la cantidad de filtros (uint32_t n_filters,
  * un filtro del tamaño indicado (filter_t depth_filter) 
  * un vector de filtros 1x1 (filter_t * point_filters) 
  */
 typedef struct{
-    uint16_t n_filters;
+    uint32_t n_filters;
     filter_t depth_filter;
     filter_t * point_filters; 
 }separable_layer_t;
@@ -86,10 +86,10 @@ typedef struct{
 /*
  * typdef struct dense_layer_t
  * Estructura que modela una capa densa.
- * Especifica la cantidad de neuronas (uint16_t n_neurons) y un vector de neuronas (neuron_t * neurons) 
+ * Especifica la cantidad de neuronas (uint32_t n_neurons) y un vector de neuronas (neuron_t * neurons) 
  */
 typedef struct{
-    uint16_t n_neurons;
+    uint32_t n_neurons;
     neuron_t * neurons;
 }dense_layer_t;
 
@@ -107,7 +107,6 @@ typedef struct {
     const fixed *gamma_variance;    // = gamma / sqrt(moving_variance + epsilon)
 } batchnorm_layer_t;
 
-
 /* PROTOTIPOS DE FUNCIONES DE LA LIBRERÍA */
 
 /* 
@@ -117,9 +116,9 @@ typedef struct {
  *             filter_t filter  =>  estructura filtro con pesos cargados
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
- * 				     uint16_t delta	=>  posicionamiento de feature_map dentro de output.data
+ * 				     uint32_t delta	=>  posicionamiento de feature_map dentro de output.data
  */
-void conv2d(filter_t filter, data_t input, data_t * output, uint16_t delta);
+void conv2d(filter_t filter, data_t input, data_t * output, uint32_t delta);
 
 /* 
  * conv2d_layer()
@@ -168,24 +167,24 @@ void dense_forward(dense_layer_t dense_layer, flatten_data_t input, flatten_data
 /* 
  * max_pooling2d()
  * Función que se encargará de aplicar un max pooling a una entrada
- * con un tamaño de ventana de recibido por parámetro (uint16_t strides)
+ * con un tamaño de ventana de recibido por parámetro (uint32_t strides)
  * a un determinado conjunto de datos de entrada.
  * Parámetros:
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
-void max_pooling_2d(uint16_t pool_size, uint16_t strides, data_t input, data_t* output);
+void max_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output);
 
 /* 
  * avg_pooling2d()
  * Función que se encargará de aplicar un average pooling a una entrada
- * con un tamaño de ventana de recibido por parámetro (uint16_t strides)
+ * con un tamaño de ventana de recibido por parámetro (uint32_t strides)
  * a un determinado conjunto de datos de entrada.
  * Parámetros:
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
-void avg_pooling_2d(uint16_t pool_size, uint16_t strides, data_t input, data_t* output);
+void avg_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output);
 
 /* 
  * softmax()
@@ -254,9 +253,30 @@ void flatten_layer(data_t input, flatten_data_t * output);
  * Parámetros:
  *         flatten_data_t data  =>  datos de tipo flatten_data_t a buscar máximo
  * Retorna
- *                         uint16_t  =>  resultado de la búsqueda - indice del valor máximo
+ *                         uint32_t  =>  resultado de la búsqueda - indice del valor máximo
  */
-uint16_t argmax(flatten_data_t data);
+uint32_t argmax(flatten_data_t data);
+
+/*
+ * batch_normalization()
+ * Normaliza la salida de una capa anterior
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      data_t *data            =>  datos de tipo data_t a modificar
+ */
+
+void batch_normalization(batchnorm_layer_t layer, data_t data, data_t *output);
+
+/*
+ * batch_normalization_flatten()
+ * Normaliza la salida proveniente de una capa densa
+ * Parámetros:
+ *      batchnorm_layer_t layer =>  capa BatchNormalization con sus respectivos parámetros
+ *      flatten_data_t *data    =>  datos de tipo flatten_data_t a modificar
+ */
+
+void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t data, flatten_data_t *output);
+
 
 /*
  * batch_normalization()
@@ -279,5 +299,7 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output);
  */
 
 void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output);
+
+
 
 #endif

@@ -36,10 +36,10 @@ void * swap_alloc(size_t s){
  *             filter_t filter  =>  estructura filtro con pesos cargados
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
- *                   uint16_t delta =>  posicionamiento de feature_map dentro de output.data
+ *                   uint32_t delta =>  posicionamiento de feature_map dentro de output.data
  */
-void conv2d(filter_t filter, data_t input, data_t * output, uint16_t delta){
-	uint16_t i,j,k,l,c;
+void conv2d(filter_t filter, data_t input, data_t * output, uint32_t delta){
+	uint32_t i,j,k,l,c;
 	float suma;
 
 	for (i=0; i<output->height; i++){
@@ -68,14 +68,14 @@ void conv2d(filter_t filter, data_t input, data_t * output, uint16_t delta){
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
 void conv2d_layer(conv_layer_t layer, data_t input, data_t * output){
-	uint16_t delta;
+	uint32_t delta;
 
 	output->channels = layer.n_filters; //cantidad de filtros
 	output->height   = input.height - layer.filters[0].kernel_size + 1;
 	output->width    = input.width - layer.filters[0].kernel_size + 1;
 	output->data     = (float*)swap_alloc( sizeof(float)*output->channels*output->height*output->width );
 
-	for(uint16_t i=0; i<layer.n_filters; i++){
+	for(uint32_t i=0; i<layer.n_filters; i++){
 		delta = i*(output->height)*(output->width);
 		conv2d(layer.filters[i],input,output,delta);
 	}
@@ -83,7 +83,7 @@ void conv2d_layer(conv_layer_t layer, data_t input, data_t * output){
 }
 
 void depthwise(filter_t filter, data_t input, data_t * output){
-	uint16_t i,j,k,l,c;
+	uint32_t i,j,k,l,c;
 	float suma;
 
 	for (i=0; i<output->height; i++){
@@ -100,8 +100,8 @@ void depthwise(filter_t filter, data_t input, data_t * output){
 		}
 	}
 }
-void pointwise(filter_t filter, data_t input, data_t * output, uint16_t delta){
-	uint16_t i,j,c;
+void pointwise(filter_t filter, data_t input, data_t * output, uint32_t delta){
+	uint32_t i,j,c;
 	float suma;
 
 	for (i=0; i<output->height; i++){
@@ -126,7 +126,7 @@ void pointwise(filter_t filter, data_t input, data_t * output, uint16_t delta){
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
 void separable_conv2d_layer(separable_layer_t layer, data_t input, data_t * output){
-	uint16_t delta;
+	uint32_t delta;
 	data_t depth_output;
 
 	depth_output.channels = input.channels; //cantidad de canales
@@ -141,7 +141,7 @@ void separable_conv2d_layer(separable_layer_t layer, data_t input, data_t * outp
 	output->width    = depth_output.width;
 	output->data     = (float*)swap_alloc( sizeof(float)*output->channels*output->height*output->width );
 	
-	for(uint16_t i=0; i<layer.n_filters; i++){
+	for(uint32_t i=0; i<layer.n_filters; i++){
 		delta = i*(output->height)*(output->width);
 		pointwise(layer.point_filters[i],depth_output,output,delta);
 	}
@@ -158,7 +158,7 @@ void separable_conv2d_layer(separable_layer_t layer, data_t input, data_t * outp
  *                      float  =>  resultado de la operación             
  */
 float neuron_forward(neuron_t neuron, flatten_data_t input){
-	uint16_t i;
+	uint32_t i;
 	float result = 0;
 
 	for(i=0;i<input.length;i++){
@@ -178,7 +178,7 @@ float neuron_forward(neuron_t neuron, flatten_data_t input){
  *            flatten_data_t * output  =>  puntero a la estructura flatten_data_t donde se guardará el resultado
  */
 void dense_forward(dense_layer_t dense_layer, flatten_data_t input, flatten_data_t * output){
-	uint16_t i;
+	uint32_t i;
 
 	output->length = dense_layer.n_neurons;
 	output->data = (float*)swap_alloc(sizeof(float)*dense_layer.n_neurons);
@@ -191,22 +191,22 @@ void dense_forward(dense_layer_t dense_layer, flatten_data_t input, flatten_data
 /* 
  * max_pooling2d()
  * Función que se encargará de aplicar un max pooling a una entrada
- * con un tamaño de ventana de recibido por parámetro (uint16_t strides)
+ * con un tamaño de ventana de recibido por parámetro (uint32_t strides)
  * a un determinado conjunto de datos de entrada.
  * Parámetros:
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
-// void max_pooling_2d(uint16_t strides, data_t input, data_t* output){
-void max_pooling_2d(uint16_t pool_size, uint16_t strides, data_t input, data_t* output){
-	uint16_t c,i,j,aux1,aux2;
+// void max_pooling_2d(uint32_t strides, data_t input, data_t* output){
+void max_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output){
+	uint32_t c,i,j,aux1,aux2;
 	float max = -INFINITY;
 	float num;
 
 	// output->height = (input.height)/pool_size ;
 	// output->width =  (input.width )/pool_size ;
-	output->height = ((uint16_t) ((input.height - pool_size)/strides)) + 1;
-	output->width  = ((uint16_t) ((input.width - pool_size)/strides)) + 1;
+	output->height = ((uint32_t) ((input.height - pool_size)/strides)) + 1;
+	output->width  = ((uint32_t) ((input.width - pool_size)/strides)) + 1;
 	output->channels = input.channels;
 	output->data = (float*)swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
 
@@ -236,22 +236,22 @@ void max_pooling_2d(uint16_t pool_size, uint16_t strides, data_t input, data_t* 
 /* 
  * avg_pooling_2d()
  * Función que se encargará de aplicar un average pooling a una entrada
- * con un tamaño de ventana de recibido por parámetro (uint16_t strides)
+ * con un tamaño de ventana de recibido por parámetro (uint32_t strides)
  * a un determinado conjunto de datos de entrada.
  * Parámetros:
  *                data_t input  =>  datos de entrada de tipo data_t
  *             data_t * output  =>  puntero a la estructura data_t donde se guardará el resultado
  */
-void avg_pooling_2d(uint16_t pool_size, uint16_t strides, data_t input, data_t* output){
-	uint16_t c,i,j,aux1,aux2;
-	uint16_t cant = pool_size*pool_size;
+void avg_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output){
+	uint32_t c,i,j,aux1,aux2;
+	uint32_t cant = pool_size*pool_size;
 	float avg = 0;
 	float num;
 
 	// output->height = (input.height)/strides ;
 	// output->width =  (input.width )/strides ;
-	output->height = ((uint16_t) ((input.height - pool_size)/strides)) + 1;
-	output->width  = ((uint16_t) ((input.width - pool_size)/strides)) + 1;
+	output->height = ((uint32_t) ((input.height - pool_size)/strides)) + 1;
+	output->width  = ((uint32_t) ((input.width - pool_size)/strides)) + 1;
 	output->channels = input.channels;
 	output->data = (float*)swap_alloc(sizeof(float)*(output->channels)*(output->height)*(output->width));
 
@@ -310,8 +310,8 @@ void softmax(flatten_data_t data){
  *                 data_t data  =>  datos de tipo data_t a modificar
  */
 void relu(data_t data){
-	uint16_t i;
-	uint16_t length = data.channels*data.height*data.width;
+	uint32_t i;
+	uint32_t length = data.channels*data.height*data.width;
 
 	for (i=0;i<length;i++){
 		data.data[i] = data.data[i] < 0 ? 0 : data.data[i];
@@ -327,7 +327,7 @@ void relu(data_t data){
  *         flatten_data_t data  =>  datos de tipo flatten_data_t a modificar
  */
 void relu_flatten(flatten_data_t data){
-	uint16_t i;
+	uint32_t i;
 
 	for (i=0;i<(data.length);i++){
 		data.data[i] = data.data[i] < 0 ? 0 : data.data[i];
@@ -343,8 +343,8 @@ void relu_flatten(flatten_data_t data){
  *                 data_t data  =>  datos de tipo data_t a modificar
  */
 void tanh2d(data_t data){
-	uint16_t i;
-	uint16_t length = data.channels*data.height*data.width;
+	uint32_t i;
+	uint32_t length = data.channels*data.height*data.width;
 
 	for (i=0;i<length;i++){
 		// data.data[i] = tanh(data.data[i]); 
@@ -361,7 +361,7 @@ void tanh2d(data_t data){
  *         flatten_data_t data  =>  datos de tipo flatten_data_t a modificar
  */
 void tanh_flatten(flatten_data_t data){
-	uint16_t i;
+	uint32_t i;
 
 	for (i=0;i<(data.length);i++){
 		// data.data[i] = tanh(data.data[i]); 
@@ -380,8 +380,8 @@ void tanh_flatten(flatten_data_t data){
  *     flatten_data_t * output  =>  puntero a la estructura flatten_data_t donde se guardará el resultado
  */
 void flatten_layer(data_t input, flatten_data_t * output){
-	uint16_t c,i,j;
-	uint16_t cantidad = 0;
+	uint32_t c,i,j;
+	uint32_t cantidad = 0;
 
 	output->length = input.channels * input.height * input.width;
 	output->data = (float*)swap_alloc(sizeof(float)*output->length);
@@ -401,13 +401,13 @@ void flatten_layer(data_t input, flatten_data_t * output){
  * Parámetros:
  *         flatten_data_t data  =>  datos de tipo flatten_data_t a buscar máximo
  * Retorna
- *                         uint16_t  =>  resultado de la búsqueda - indice del valor máximo
+ *                         uint32_t  =>  resultado de la búsqueda - indice del valor máximo
  */
-uint16_t argmax(flatten_data_t data){
+uint32_t argmax(flatten_data_t data){
 	float max = data.data[0];
-	uint16_t pos = 0;
+	uint32_t pos = 0;
 
-	for(uint16_t i=1;i<data.length;i++){
+	for(uint32_t i=1;i<data.length;i++){
 		if(data.data[i]>max){
 			max = data.data[i];
 			pos = i;
@@ -416,6 +416,8 @@ uint16_t argmax(flatten_data_t data){
 	
 	return pos;
 }
+
+
 
 /*
  * batch_normalization()
@@ -428,7 +430,7 @@ uint16_t argmax(flatten_data_t data){
 
 void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) {
 	uint32_t i, j;
-	uint16_t length = (input.height)*(input.width);
+	uint32_t length = (input.height)*(input.width);
 	uint32_t ilen;
 
 	output->height = input.height;

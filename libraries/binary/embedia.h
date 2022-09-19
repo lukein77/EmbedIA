@@ -7,47 +7,98 @@
 #define _EMBEDIA_H
 
 #include <stdint.h>
-#include "fixed.h"
+#include <math.h>
+#include <stdlib.h>
 
 
-#define PRINT_RESULTS 0
 
 
 /* DEFINICIÓN DE ESTRUCTURAS */
 
+
+typedef float dato_salida;
+
+#if tamano_del_bloque == 8
+typedef uint8_t xBYTE;
+static const uint8_t mascara_global_bits[8] = { 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1};
+#elif tamano_del_bloque == 16
+typedef uint16_t xBYTE;
+static const uint16_t mascara_global_bits[16] = { 32768 , 16384 , 8192 , 4096 , 2048 , 1024 , 512 , 256 , 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1};
+#elif tamano_del_bloque == 32
+typedef uint32_t xBYTE;
+static const uint32_t mascara_global_bits[32] = { 2147483648 , 1073741824 , 536870912 , 268435456 , 134217728 , 67108864 , 33554432 , 16777216 , 8388608 , 4194304 , 2097152 , 1048576 , 524288 , 262144 , 131072 , 65536 , 32768 , 16384 , 8192 , 4096 , 2048 , 1024 , 512 , 256 , 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1};
+#else
+typedef uint8_t xBYTE;
+static const uint8_t mascara_global_bits[8] = { 128 , 64 , 32 , 16 , 8 , 4 , 2 , 1};
+#endif // tamano_del_bloque
+
+
+
+/* DEFINICIÓN DE ESTRUCTURAS */
+
+
+/* 
+ * typedef struct batchnorm_layer_t
+ * Estructura que modela una capa BatchNormalization.
+ * Contiene vectores para los cuatro parámetros utilizados para normalizar.
+ * La cantidad de cada uno de los parámetros se determina por la cantidad de canales de la capa anterior.
+ */
+typedef struct {
+    const float *moving_mean;
+    const float *moving_variance;
+    const float *gamma;
+    const float *beta;
+    const float *gamma_variance;    // = gamma / sqrt(moving_variance + epsilon)
+} batchnorm_layer_t;
+
+
+typedef struct{
+    uint32_t channels;
+    uint32_t kernel_size;
+    const xBYTE *bitarray;
+    dato_salida bias;
+}quant_filter_t;
+
+typedef struct{
+    uint32_t n_filters;
+    quant_filter_t * filters;
+}quant_conv_layer_t;
+
+
+
 /*
  * typedef struct data_t
- * Estructura que almacena una matriz de datos de tipo fixed  (fixed  * data) en forma de vector
+ * Estructura que almacena una matriz de datos de tipo float  (float  * data) en forma de vector
  * Especifica la cantidad de canales (uint32_t channels), el ancho (uint32_t width) y el alto (uint32_t height) de la misma
  */
 typedef struct{
     uint32_t channels;
     uint32_t width;
     uint32_t height;
-    fixed  * data;
+    float  * data;
 }data_t;
 
 /*
  * typdef struct flatten_data_t
- * Estructura que almacena un vector de datos de tipo fixed  (fixed  * data).
+ * Estructura que almacena un vector de datos de tipo float  (float  * data).
  * Especifica el largo del mismo (uint32_t length).
  */
 typedef struct{
     uint32_t length;
-    fixed  * data;
+    float  * data;
 }flatten_data_t;
 
 /*
  * typedef struct filter_t
  * Estructura que almacena los pesos de un filtro.
  * Especifica la cantidad de canales (uint32_t channels), su tamaño (uint32_t kernel_size),
- * los pesos (fixed  * weights) y el bias (fixed  bias).
+ * los pesos (float  * weights) y el bias (float  bias).
  */
 typedef struct{
     uint32_t channels;
     uint32_t kernel_size;
-    const fixed  * weights;
-    fixed  bias; 
+    const float  * weights;
+    float  bias; 
 }filter_t;
 
 /*
@@ -76,11 +127,11 @@ typedef struct{
 /*
  * typdef struct neuron_t
  * Estructura que modela una neurona.
- * Especifica los pesos de la misma en forma de vector (fixed  * weights) y el bias (fixed  bias)
+ * Especifica los pesos de la misma en forma de vector (float  * weights) y el bias (float  bias)
  */
 typedef struct{
-    const fixed  * weights;
-    fixed  bias;
+    const float  * weights;
+    float  bias;
 }neuron_t;
 
 /*
@@ -93,21 +144,30 @@ typedef struct{
     neuron_t * neurons;
 }dense_layer_t;
 
-/* 
- * typedef struct batchnorm_layer_t
- * Estructura que modela una capa BatchNormalization.
- * Contiene vectores para los cuatro parámetros utilizados para normalizar.
- * La cantidad de cada uno de los parámetros se determina por la cantidad de canales de la capa anterior.
- */
-typedef struct {
-    const fixed *moving_mean;
-    const fixed *moving_variance;
-    const fixed *gamma;
-    const fixed *beta;
-    const fixed *gamma_variance;    // = gamma / sqrt(moving_variance + epsilon)
-} batchnorm_layer_t;
+
+
+typedef struct{
+    const xBYTE  * weights;
+    dato_salida bias;
+}quant_neuron_t;
+
+typedef struct{
+    uint32_t n_neurons;
+    quant_neuron_t * neurons;
+}quant_dense_layer_t;
+
 
 /* PROTOTIPOS DE FUNCIONES DE LA LIBRERÍA */
+
+uint8_t sign(float x);
+int count_set_bits_Brian_Kernighan_algorithm(xBYTE n);
+dato_salida POPCOUNT(xBYTE n);
+xBYTE XNOR(register xBYTE a,register xBYTE b);
+
+void quant_conv2d(quant_conv_layer_t layer,data_t input, data_t *output);
+void quant_conv2d_input_not_binary_layer(quant_conv_layer_t layer,data_t input, data_t *output);
+void quant_conv2d_input_not_binary(quant_filter_t filter, data_t input, data_t * output, uint32_t delta);
+void quant_dense_forward(quant_dense_layer_t dense_layer, flatten_data_t input, flatten_data_t * output);
 
 /* 
  * conv2d()
@@ -149,9 +209,9 @@ void separable_conv2d_layer(separable_layer_t layer, data_t input, data_t * outp
  *             neuron_t neuron  =>  neurona con sus pesos y bias cargados
  *        flatten_data_t input  =>  datos de entrada en forma de vector (flatten_data_t)
  * Retorna:
- *                      fixed   =>  resultado de la operación             
+ *                      float   =>  resultado de la operación             
  */
-fixed  neuron_forward(neuron_t neuron, flatten_data_t input);
+float neuron_forward(neuron_t neuron, flatten_data_t input);
 
 /* 
  * dense_forward()
@@ -176,7 +236,7 @@ void dense_forward(dense_layer_t dense_layer, flatten_data_t input, flatten_data
 void max_pooling_2d(uint32_t pool_size, uint32_t strides, data_t input, data_t* output);
 
 /* 
- * avg_pooling2d()
+ * avg_pooling_2d()
  * Función que se encargará de aplicar un average pooling a una entrada
  * con un tamaño de ventana de recibido por parámetro (uint32_t strides)
  * a un determinado conjunto de datos de entrada.
@@ -207,7 +267,7 @@ void softmax(flatten_data_t data);
 void relu(data_t data);
 
 /* 
- * relu(flatten_data_t)
+ * relu_flatten(flatten_data_t)
  * Función que implementa la activación relu, convierte un vector de entrada en 
  * una distribución de probabilidades (aplicado a la salida de regresión lineal para
  * obtener una distribución de probabilidades para de cada clase).
@@ -253,9 +313,11 @@ void flatten_layer(data_t input, flatten_data_t * output);
  * Parámetros:
  *         flatten_data_t data  =>  datos de tipo flatten_data_t a buscar máximo
  * Retorna
- *                    uint32_t  =>  resultado de la búsqueda - indice del valor máximo
+ *                         uint32_t  =>  resultado de la búsqueda - indice del valor máximo
  */
 uint32_t argmax(flatten_data_t data);
+
+
 
 /*
  * batch_normalization()
@@ -278,5 +340,7 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output);
  */
 
 void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, flatten_data_t *output);
+
+
 
 #endif
