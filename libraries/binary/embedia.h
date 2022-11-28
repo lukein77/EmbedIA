@@ -48,7 +48,8 @@ typedef struct {
     const float *moving_variance;
     const float *gamma;
     const float *beta;
-    const float *gamma_variance;    // = gamma / sqrt(moving_variance + epsilon)
+    const float *standard_gamma;     // = gamma / sqrt(moving_variance + epsilon)
+    const float *standard_beta;         // = (gamma * moving_mean) / sqrt(moving_variance + epsilon)
 } batchnorm_layer_t;
 
 
