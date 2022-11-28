@@ -443,7 +443,7 @@ void batch_normalization(batchnorm_layer_t layer, data_t input, data_t *output) 
 	for (i = 0; i < input.channels; i++) {
 		ilen = i*length;
 		for (j = 0; j < length; j++) {
-			output->data[ilen+j] = FIXED_MUL(input.data[ilen+j] - layer.moving_mean[i], layer.gamma_variance[i]) + layer.beta[i];
+			output->data[ilen+j] = FIXED_MUL(input.data[ilen+j], layer.standard_gamma[i]) + layer.standard_beta[i];
 		}
 	}
 }
@@ -465,6 +465,6 @@ void batch_normalization_flatten(batchnorm_layer_t layer, flatten_data_t input, 
 
 	for (i = 0; i < output->length; i++) {
 		//output->data[i] = (input.data[i] - layer.moving_mean[i]) * layer.gamma_variance[i] + layer.beta[i];
-		output->data[i] = FIXED_MUL(input.data[i] - layer.moving_mean[i], layer.gamma_variance[i]) + layer.beta[i];
+		output->data[i] = FIXED_MUL(input.data[i], layer.standard_gamma[i]) + layer.standard_beta[i];
 	}
 }

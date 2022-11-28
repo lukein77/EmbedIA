@@ -103,7 +103,8 @@ typedef struct {
     const fixed *moving_variance;
     const fixed *gamma;
     const fixed *beta;
-    const fixed *gamma_variance;    // = gamma / sqrt(moving_variance + epsilon)
+    const fixed *standard_gamma;    // = gamma / sqrt(moving_variance + epsilon)
+    const fixed *standard_beta;     // = (gamma * moving_mean) / sqrt(moving_variance + epsilon)
 } batchnorm_layer_t;
 
 /* PROTOTIPOS DE FUNCIONES DE LA LIBRERÍA */

@@ -480,22 +480,24 @@ def get_parameters_batchnorm(layer):
     layer -> BatchNormalization layer
     
     Returns:
-    Tuple with values: gamma, beta, moving_mean, moving_variance
+    Tuple with values: gamma, beta, moving_mean, moving_variance, standard_gamma, standard_beta
     
   '''
-  assert 'batch_normalization' in layer.name #Get sure it is a batchnorm layer
+  assert 'batch_normalization' in layer.name # Make sure it is a batchnorm layer
   gamma = layer.get_weights()[0]
   beta = layer.get_weights()[1]
   moving_mean = layer.get_weights()[2]
   moving_variance = layer.get_weights()[3]
   epsilon = layer.epsilon
 
-  '''Calculate a new parameter (we'll call it gamma_variance)
+  '''Calculate a new parameter (we'll call it standard_gamma)
     This way we don't need to do division and calculate square root in the microcontroller
     epsilon = 0.001 (to avoid division by zero)'''
-  gamma_variance = np.array([(gamma[i] / sqrt(moving_variance[i] + epsilon)) for i in range(gamma.size)])
+  standard_gamma = np.array([(gamma[i] / sqrt(moving_variance[i] + epsilon)) for i in range(gamma.size)])
+  #standard_beta = np.array([(beta[i] - (gamma[i] * moving_mean[i]) / sqrt(moving_variance[i] + epsilon)) for i in range(beta.size)])
+  standard_beta = np.array([(beta[i] - moving_mean[i] * standard_gamma[i]) for i in range(beta.size)])
 
-  return gamma,beta,moving_mean,moving_variance,gamma_variance
+  return gamma,beta,moving_mean,moving_variance,standard_gamma,standard_beta
 
 def exportar_batchnorm_a_c(layer, nro, macro_converter, data_type):
   '''
@@ -509,7 +511,7 @@ def exportar_batchnorm_a_c(layer, nro, macro_converter, data_type):
     Returns:
     String with c code representing the function 
   '''
-  gamma,beta,mean,variance,gamma_variance=get_parameters_batchnorm(layer)
+  gamma,beta,mean,variance,standard_gamma,standard_beta=get_parameters_batchnorm(layer)
   ret=""
 
   init_batchnorm_layer=f'''
@@ -531,11 +533,23 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   for i in range(variance.size):
     o_variance += f'''{macro_converter(variance[i])}, '''
 
-  o_gamma_variance = ""
-  for i in range(gamma_variance.size):
-    o_gamma_variance += f'''{macro_converter(gamma_variance[i])}, '''
+  o_standard_gamma = ""
+  for i in range(standard_gamma.size):
+    o_standard_gamma += f'''{macro_converter(standard_gamma[i])}, '''
+
+  o_standard_beta = ""
+  for i in range(standard_beta.size):
+    o_standard_beta += f'''{macro_converter(standard_beta[i])}, '''
 
   init_batchnorm_layer += f'''
+
+  static const {data_type} standard_gamma[] = {{ {o_standard_gamma} 
+  }};
+
+  static const {data_type} standard_beta[] = {{ {o_standard_beta} 
+  }};
+
+  /* original parameters from keras layer:
 
   static const {data_type} beta[] = {{ {o_beta} 
   }};
@@ -543,10 +557,6 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   static const {data_type} moving_mean[] = {{ {o_mean} 
   }};
 
-  static const {data_type} gamma_variance[] = {{ {o_gamma_variance} 
-  }};
-
-  /* gamma and moving_variance parameters from keras layer:
   static const {data_type} gamma[] = {{ {o_gamma} 
   }};
 
@@ -555,9 +565,8 @@ batchnorm_layer_t init_batchnorm_layer{nro}(void){{
   */
 
   batchnorm_layer_t layer;
-  layer.moving_mean = moving_mean;
-  layer.beta = beta;
-  layer.gamma_variance = gamma_variance; 
+  layer.standard_gamma = standard_gamma; 
+  layer.standard_beta = standard_beta;
 
   return layer;
 }}
